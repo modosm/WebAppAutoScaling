@@ -1,104 +1,104 @@
-heat_template_version: 2016-10-14
+heat_template_version:     2016-10-14
 
-description: >
+description:               >
   This is a nested Heat used by the Web Applications Workload Reference Architecture
   created by the Enterprise Working Group.  These templates demonstrate a sample
   LAMP architecture supporting Wordpress. This template file launches the application
   tier nodes, and installs Apache, PHP, MySQL client, and finally WordPress.
   This serves as a guide to new users and is not meant for production deployment.
 
-  #Created by: Craig Sterrett 3/23/2016
-  #Updated by: Craig Sterrett 1/3/2017 to support LBaaS V2 and Newton
+  #Created by:             Craig Sterrett 3/23/2016
+  #Updated by:             Craig Sterrett 1/3/2017 to support LBaaS V2 and Newton
 
 parameters:
   ssh_key_name:
-    type: string
-    label: SSH Key Name
-    description: REQUIRED PARAMETER -Name of an existing SSH KeyPair to enable SSH access to instances.
-    default: cloudkey
+    type:                  string
+    label:                 SSH Key Name
+    description:           REQUIRED PARAMETER -Name of an existing SSH KeyPair to enable SSH access to instances.
+    default:               cloudkey
     constraints:
       - custom_constraint: nova.keypair
-        description: Must already exist on your cloud
+        description:       Must already exist on your cloud
 
   server_name:
-    type: string
-    label: Server Name
-    description: REQUIRED PARAMETER - Name of the instance to spin up.
-    default: App_Server
+    type:                  string
+    label:                 Server Name
+    description:           REQUIRED PARAMETER - Name of the instance to spin up.
+    default:               App_Server
 
   instance_flavor:
-    type: string
-    label: Instance Flavor
-    description: The flavor type to use for each server.
-    default: m1.small
+    type:                  string
+    label:                 Instance Flavor
+    description:           The flavor type to use for each server.
+    default:               m1.small
     constraints:
       - custom_constraint: nova.flavor
-        description:  Must be a valid flavour provided by your cloud provider.
+        description:       Must be a valid flavour provided by your cloud provider.
 
   image_id:
-    type: string
-    label: Image ID
-    description: >
+    type:                  string
+    label:                 Image ID
+    description:           >
       REQUIRED PARAMETER - The image id to be used for the compute instance. Please specify
       your own Image ID in your project/tenant.
     constraints:
       - custom_constraint: glance.image
-        description: Must be a valid image on your cloud
+        description:       Must be a valid image on your cloud
 
   private_network_id:
-    type: string
-    default: App_Tier_private_network
-    description: The private Application network that will be utilized for all App servers
+    type:                  string
+    default:               App_Tier_private_network
+    description:           The private Application network that will be utilized for all App servers
     constraints:
       - custom_constraint: neutron.network
-        description: Must be a valid private network on your cloud
+        description:       Must be a valid private network on your cloud
 
   private_subnet_id:
-    type: string
-    description: Private subnet of the LBaaS Pool
-    default: private_subnet
+    type:                  string
+    description:           Private subnet of the LBaaS Pool
+    default:               private_subnet
     constraints:
       - custom_constraint: neutron.subnet
-        description: Must be a valid private subnet on your cloud
+        description:       Must be a valid private subnet on your cloud
 
   security_group:
-    type: string
-    default: Workload_App_SG
-    description: The Application security group that will be utilized for all App servers
+    type:                  string
+    default:               Workload_App_SG
+    description:           The Application security group that will be utilized for all App servers
 
   pool_name:
-    type: string
-    description: LBaaS Pool to join
+    type:                  string
+    description:           LBaaS Pool to join
     constraints:
       - custom_constraint: neutron.lbaas.pool
-        description: Must be a LBaaS pool on your cloud
+        description:       Must be a LBaaS pool on your cloud
 
   db_server_ip:
-    type: string
-    description: Database Server IP
+    type:                  string
+    description:           Database Server IP
 
   metadata:
-    type: json
+    type:                  json
 
 resources:
   app_server:
-    type: OS::Nova::Server
+    type:                  OS::Nova::Server
     properties:
-      name: { get_param: server_name }
-      image: { get_param: image_id }
+      name: { get_param:   server_name }
+      image: { get_param:  image_id }
       flavor: { get_param: instance_flavor }
       key_name: { get_param: ssh_key_name }
       metadata: { get_param: metadata }
       networks:
         - network: { get_param: private_network_id }
       security_groups:
-        - { get_param: security_group }
-      user_data_format: RAW
+        - { get_param:     security_group }
+      user_data_format:    RAW
       user_data:
         str_replace:
           params:
             $db_server_ip: { get_param: db_server_ip }
-          template: |
+          template:        |
             #!/bin/bash -v
             #use apt-get for Debian/ubuntu, and yum for centos/fedora
             if apt-get -v &> /dev/null
@@ -151,17 +151,17 @@ resources:
             systemctl restart apache2
 
   Pool_Member:
-      type: OS::Neutron::LBaaS::PoolMember
+      type:                OS::Neutron::LBaaS::PoolMember
       properties:
-        pool: {get_param: pool_name}
+        pool: {get_param:  pool_name}
         address: {get_attr: [app_server, first_address]}
-        protocol_port: 80
+        protocol_port:     80
         subnet: {get_param: private_subnet_id}
 
 outputs:
   app_private_ip:
-    description: Private IP address of the Web node
-    value: { get_attr: [app_server, first_address] }
+    description:           Private IP address of the Web node
+    value: { get_attr:     [app_server, first_address] }
   lb_member:
-    description: LoadBalancer member details.
-    value: { get_attr: [Pool_Member, show] }
+    description:           LoadBalancer member details.
+    value: { get_attr:     [Pool_Member, show] }
