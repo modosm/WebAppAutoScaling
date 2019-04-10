@@ -197,40 +197,40 @@ resources:
             protocol: TCP
             loadbalancer: {get_resource: App_Tier_LoadBalancer }
 
-#LBaaS V2 Pool for App server pool
-  App_Server_Pool:
-    type: OS::Neutron::LBaaS::Pool
-    depends_on: [App_Tier_Listener]
-    properties:
-      lb_algorithm: ROUND_ROBIN
-      listener: {get_resource: App_Tier_Listener }
-      protocol: TCP
+# LBaaS V2 Pool for App server pool
+    App_Server_Pool:
+        type: OS::Neutron::LBaaS::Pool
+        depends_on: [App_Tier_Listener]
+        properties:
+            lb_algorithm: ROUND_ROBIN
+            listener: {get_resource: App_Tier_Listener }
+            protocol: TCP
 
 #############################
 # create a private network/subnet for the Database servers
-  DB_private_network:
-    type: OS::Neutron::Net
-    properties:
-      name: DB_Tier_private_network
+    DB_private_network:
+        type: OS::Neutron::Net
+        properties:
+            name: DB_Tier_private_network
 
-  DB_private_network_subnet:
-    type: OS::Neutron::Subnet
-    depends_on: [DB_private_network]
-    properties:
-      cidr: 192.168.102.0/24
-      #start IP allocation at .10 to allow room for the hard coded gateway IPs
-      allocation_pools: [{ "start": 192.168.102.10, "end": 192.168.102.200 }]
-      gateway_ip: 192.168.102.6
-      network: { get_resource: DB_private_network }
-      dns_nameservers: { get_param: dns_nameserver }
-      enable_dhcp: true
+    DB_private_network_subnet:
+        type: OS::Neutron::Subnet
+        depends_on: [DB_private_network]
+        properties:
+            cidr: 192.168.102.0/24
+            # start IP allocation at .10 to allow room for the hard coded gateway IPs
+            allocation_pools: [{ "start": 192.168.102.10, "end": 192.168.102.200 }]
+            gateway_ip: 192.168.102.6
+            network: { get_resource: DB_private_network }
+            dns_nameservers: { get_param: dns_nameserver }
+            enable_dhcp: true
 
 # create a router linking Database and App network
-  DB_router:
-    type: OS::Neutron::Router
-    properties:
-      name: "AppDBRouter"
-      external_gateway_info: {"network":  { get_param: public_network_id }, "enable_snat": True}
+    DB_router:
+        type: OS::Neutron::Router
+        properties:
+            name: "AppDBRouter"
+            external_gateway_info: {"network":  { get_param: public_network_id }, "enable_snat": True}
 
 # Create a port connecting the db_router to the db network
   db_router_db_port:
