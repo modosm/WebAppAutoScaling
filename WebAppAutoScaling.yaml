@@ -35,6 +35,7 @@ parameters:
         hidden: false
         constraints:
             - custom_constraint: nova.keypair
+              description: Must already exist on your cloud
 
     image_id:
         type: string
@@ -43,10 +44,11 @@ parameters:
             REQUIRED PARAMETER - The image id to be used for the compute instance. Please
             specify your own Image ID in your project/tenant.
             This could be modified to use different images for each tier.
-        default: General-Cloud-GEIX-Ubuntu14.04-Linux-2017-12-12
+        default:
         hidden: false
         constraints:
             - custom_constraint: glance.image
+              description: Must be a valid image on your cloud
 
     public_network_id:
         type: string
@@ -58,6 +60,7 @@ parameters:
         default:
         constraints:
             - custom_constraint: neutron.network
+              description: Must be a valid network on your cloud
 
     db_instance_flavor:
         type: string
@@ -67,6 +70,7 @@ parameters:
         hidden: false
         constraints:
             - custom_constraint: nova.flavor
+              description:  Must be a valid flavor provided by your cloud provider.
 
     app_instance_flavor:
         type: string
@@ -76,6 +80,7 @@ parameters:
         hidden: false
         constraints:
             - custom_constraint: nova.flavor
+              description:  Must be a valid flavor provided by your cloud provider.
 
     web_instance_flavor:
         type: string
@@ -85,33 +90,31 @@ parameters:
         hidden: false
         constraints:
             - custom_constraint: nova.flavor
+              description:  Must be a valid flavor provided by your cloud provider.
 
     db_server_name:
         type: string
         label: Server Name
         description: Name of the database servers
-        hidden: false
         default: wordpress_db_server
 
     app_server_name:
         type: string
         label: Server Name
         description: Name of the application servers
-        hidden: false
         default: wordpress_app_server
 
     web_server_name:
         type: string
         label: Server Name
         description: Name of the web servers
-        hidden: false
         default: wordpress_web_server
 
     dns_nameserver:
         type: comma_delimited_list
         label: DNS Name Server
         description: The IP address of a DNS nameserver in list format
-        default: 10.220.220.220,10.220.220.221
+        default: 8.8.8.8,8.8.4.4
 
 ######################################
 #The resources section defines actual resources that make up a stack deployed from the HOT template (for instance compute instances, networks, storage volumes).
@@ -130,7 +133,6 @@ resources:
 
 ####################
 ##Kick off a Database server
-
     launch_db_server:
         type: lib/heat_sql_tier.yaml
         properties:
@@ -143,102 +145,105 @@ resources:
 
 ####################
 #Autoscaling for the app servers
-
-  app_autoscale_group:
-    type: OS::Heat::AutoScalingGroup
-    properties:
-      desired_capacity: 2
-      min_size: 2
-      max_size: 5
-      resource:
-        type: lib/heat_app_tier.yaml
+    app_autoscale_group:
+        type: OS::Heat::AutoScalingGroup
         properties:
-         ssh_key_name: {get_param: ssh_key_name}
-         server_name: {get_param: app_server_name}
-         instance_flavor: {get_param: app_instance_flavor}
-         image_id: {get_param: image_id}
-         private_network_id:
-           get_attr: [network_setup,app_private_network_id]
-         security_group: {get_attr: [network_setup, app_security_group_id]}
-         pool_name: {get_attr: [network_setup, app_lbaas_pool_name]}
-         db_server_ip: {get_attr: [launch_db_server, instance_ip]}
-         metadata: {"metering.autoscale_group_name": "app_autoscale_group"}
+            desired_capacity: 2
+            min_size: 2
+            max_size: 5
+            resource:
+                type: lib/heat_app_tier.yaml
+                properties:
+                    ssh_key_name: {get_param: ssh_key_name}
+                    server_name: {get_param: app_server_name}
+                    instance_flavor: {get_param: app_instance_flavor}
+                    image_id: {get_param: image_id}
+                    private_network_id: {get_attr: [network_setup, app_private_network_id]}
+                    private_subnet_id: {get_attr: [network_setup, app_private_subnet_id]}
+                    security_group: {get_attr: [network_setup, app_security_group_id]}
+                    pool_name: {get_attr: [network_setup, app_lbaas_pool_name]}
+                    db_server_ip: {get_attr: [launch_db_server, instance_ip]}
+                    # created unique tag to be used by ceilometer to identify meters specific to the
+                    # app nodes without some unique metadata tag, ceilometer will group together
+                    # all resources in the tenant
+                    metadata: {"metering.autoscale_group_name": "app_autoscale_group"}
 
-  app_scaleup_policy:
-    type: OS::Heat::ScalingPolicy
-    properties:
-      adjustment_type: change_in_capacity
-      auto_scaling_group_id: { get_resource: app_autoscale_group }
-      #cooldown prevents duplicate alarms while instances spin up.
-      cooldown: 900 # 15 mins
-      scaling_adjustment: 1
+    app_scaleup_policy:
+        type: OS::Heat::ScalingPolicy
+        properties:
+            adjustment_type: change_in_capacity
+            auto_scaling_group_id: { get_resource: app_autoscale_group }
+            #cooldown prevents duplicate alarms while instances spin up.
+            cooldown: 900 # 15 mins
+            scaling_adjustment: 1
 
-  app_cpu_alarm_high:
-    type: OS::Ceilometer::Alarm
-    properties:
-      meter_name: cpu_util
-      statistic: avg
-      #period needs to be greater than the sampling rate in the pipleine.config file
-      #in /etc/ceilometer
-      period: 1200 # 20 mins
-      evaluation_periods: 1
-      #Alarms if CPU utilization for ALL app nodes averaged together exceeds 50%
-      threshold: 70
-      repeat_actions: true
-      alarm_actions:
-        - {get_attr: [app_scaleup_policy, alarm_url]}
-      #Collect data only on servers with the autoscale_group_name metadata set to
-      #app_autoscale_group
-      matching_metadata: {'metadata.user_metadata.autoscale_group_name': "app_autoscale_group"}
-      comparison_operator: gt # greater than
+    app_cpu_alarm_high:
+        type: OS::Ceilometer::Alarm
+        properties:
+            meter_name: cpu_util
+            statistic: avg
+            # period needs to be greater than the sampling rate in the pipleine.config file
+            # in /etc/ceilometer
+            period: 1200 # 20 mins
+            evaluation_periods: 1
+            #Alarms if CPU utilization for ALL app nodes averaged together exceeds 50%
+            threshold: 70
+        repeat_actions: true
+        alarm_actions:
+            - {get_attr: [app_scaleup_policy, alarm_url]}
+        #Collect data only on servers with the autoscale_group_name metadata set to
+        #app_autoscale_group
+        matching_metadata: {'metadata.user_metadata.autoscale_group_name': "app_autoscale_group"}
+        comparison_operator: gt # greater than
 
-  app_scaledown_policy:
-    type: OS::Heat::ScalingPolicy
-    properties:
-      adjustment_type: change_in_capacity
-      auto_scaling_group_id: { get_resource: app_autoscale_group }
-      #cooldown prevents duplicate alarms while instances shut down.
-      cooldown: 900 # 15 mins
-      scaling_adjustment: -1
+    app_scaledown_policy:
+        type: OS::Heat::ScalingPolicy
+        properties:
+            adjustment_type: change_in_capacity
+            auto_scaling_group_id: { get_resource: app_autoscale_group }
+            #cooldown prevents duplicate alarms while instances shut down.
+            cooldown: 900 # 15 mins
+            scaling_adjustment: -1
 
-  app_cpu_alarm_low:
-    type: OS::Ceilometer::Alarm
-    properties:
-      meter_name: cpu_util
-      statistic: avg
-      #period needs to be greater than the sampling rate in the pipleine.config file in /etc/ceilometer
-      period: 1200 # 20 mins
-      evaluation_periods: 1
-      #Alarms if CPU utilization for ALL app nodes averaged together drops below 20%
-      threshold: 20
-      repeat_actions: true
-      alarm_actions:
-        - {get_attr: [app_scaledown_policy, alarm_url]}
-      #Collect data only on servers with the autoscale_group_name metadata set to app_autoscale_group
-      matching_metadata: {'metadata.user_metadata.autoscale_group_name': "app_autoscale_group"}
-      comparison_operator: lt # less than
+    app_cpu_alarm_low:
+        type: OS::Ceilometer::Alarm
+        properties:
+            meter_name: cpu_util
+            statistic: avg
+            # period needs to be greater than the sampling rate in the pipleine.config file in /etc
+            # ceilometer
+            period: 1200 # 20 mins
+            evaluation_periods: 1
+            # Alarms if CPU utilization for ALL app nodes averaged together drops below 20%
+            threshold: 20
+            repeat_actions: true
+            alarm_actions: {get_attr: [app_scaledown_policy, alarm_url]}
+            # Collect data only on servers with the autoscale_group_name metadata set to
+            # app_autoscale_group
+            matching_metadata: {'metadata.user_metadata.autoscale_group_name': "app_autoscale_group"}
+            comparison_operator: lt # less than
 
 ####################
-#Autoscaling for the web servers
+# Autoscaling for the web servers
 
-  web_autoscale_group:
-    type: OS::Heat::AutoScalingGroup
-    properties:
-      desired_capacity: 2
-      min_size: 2
-      max_size: 5
-      resource:
-        type: lib/heat_web_tier.yaml
+    web_autoscale_group:
+        type: OS::Heat::AutoScalingGroup
         properties:
-         ssh_key_name: {get_param: ssh_key_name}
-         server_name: {get_param: web_server_name}
-         instance_flavor: {get_param: web_instance_flavor}
-         image_id: {get_param: image_id}
-         private_network_id: {get_attr: [network_setup, web_private_network_id]}
-         app_lbaas_vip: {get_attr: [network_setup, app_lbaas_IP]}
-         security_group: {get_attr: [network_setup, web_security_group_id]}
-         pool_name: {get_attr: [network_setup, web_lbaas_pool_name]}
-         metadata: {"metering.autoscale_group_name": "web_autoscale_group"}
+            desired_capacity: 2
+            min_size: 2
+            max_size: 5
+            resource:
+                type: lib/heat_web_tier.yaml
+                properties:
+                    ssh_key_name: {get_param: ssh_key_name}
+                    server_name: {get_param: web_server_name}
+                    instance_flavor: {get_param: web_instance_flavor}
+                    image_id: {get_param: image_id}
+                    private_network_id: {get_attr: [network_setup, web_private_network_id]}
+                    app_lbaas_vip: {get_attr: [network_setup, app_lbaas_IP]}
+                    security_group: {get_attr: [network_setup, web_security_group_id]}
+                    pool_name: {get_attr: [network_setup, web_lbaas_pool_name]}
+                    metadata: {"metering.autoscale_group_name": "web_autoscale_group"}
 
   web_scaleup_policy:
     type: OS::Heat::ScalingPolicy
