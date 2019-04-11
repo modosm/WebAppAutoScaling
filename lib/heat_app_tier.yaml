@@ -1,49 +1,45 @@
 heat_template_version:     2016-10-14
 
 description:               >
-  This is a nested Heat used by the Web Applications Workload Reference Architecture
-  created by the Enterprise Working Group.  These templates demonstrate a sample
-  LAMP architecture supporting Wordpress. This template file launches the application
-  tier nodes, and installs Apache, PHP, MySQL client, and finally WordPress.
-  This serves as a guide to new users and is not meant for production deployment.
-
-  #Created by:             Craig Sterrett 3/23/2016
-  #Updated by:             Craig Sterrett 1/3/2017 to support LBaaS V2 and Newton
+    This is a nested Heat used by the Web Applications Workload Architecture These templates demonstrate a sample
+    LAMP architecture supporting Wordpress. This template file launches the application tier nodes, and installs
+    Apache, PHP, MySQL client, and finally WordPress. This serves as a guide to new users and is not meant for production
+    deployment.
 
 parameters:
-  ssh_key_name:
-    type:                  string
-    label:                 SSH Key Name
-    description:           REQUIRED PARAMETER -Name of an existing SSH KeyPair to enable SSH access to instances.
-    default:               cloudkey
-    constraints:
-      - custom_constraint: nova.keypair
-        description:       Must already exist on your cloud
+    ssh_key_name:
+        type:              string
+        label:             SSH Key Name
+        description:       REQUIRED PARAMETER -Name of an existing SSH KeyPair to enable SSH access to instances.
+        default:           cloudkey
+        constraints:
+            - custom_constraint: nova.keypair
+              description: Must already exist on your cloud
 
-  server_name:
-    type:                  string
-    label:                 Server Name
-    description:           REQUIRED PARAMETER - Name of the instance to spin up.
-    default:               App_Server
+    server_name:
+        type:              string
+        label:             Server Name
+        description:       REQUIRED PARAMETER - Name of the instance to spin up.
+        default:           App_Server
 
-  instance_flavor:
-    type:                  string
-    label:                 Instance Flavor
-    description:           The flavor type to use for each server.
-    default:               m1.small
-    constraints:
-      - custom_constraint: nova.flavor
-        description:       Must be a valid flavour provided by your cloud provider.
+    instance_flavor:
+        type:              string
+        label:             Instance Flavor
+        description:       The flavor type to use for each server.
+        default:           m1.small
+        constraints:
+            - custom_constraint: nova.flavor
+              description: Must be a valid flavour provided by your cloud provider.
 
-  image_id:
-    type:                  string
-    label:                 Image ID
-    description:           >
-      REQUIRED PARAMETER - The image id to be used for the compute instance. Please specify
-      your own Image ID in your project/tenant.
-    constraints:
-      - custom_constraint: glance.image
-        description:       Must be a valid image on your cloud
+    image_id:
+        type:              string
+        label:             Image ID
+        description:       >
+            REQUIRED PARAMETER - The image id to be used for the compute instance. Please specify your own Image ID in your
+            project/tenant.
+      constraints:
+            - custom_constraint: glance.image
+              description: Must be a valid image on your cloud
 
   private_network_id:
     type:                  string
@@ -161,7 +157,7 @@ resources:
 outputs:
   app_private_ip:
     description:           Private IP address of the Web node
-    value: { get_attr:     [app_server, first_address] }
+    value:                 { get_attr: nested [app_server, first_address] }
   lb_member:
     description:           LoadBalancer member details.
-    value: { get_attr:     [Pool_Member, show] }
+    value:                 { get_attr: [Pool_Member, show] }
