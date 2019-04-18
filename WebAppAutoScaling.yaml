@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 # The value of heat_template_version tells Heat not only the format of the template
 # abut also features that will be validated and supported 2016-04-08 represents the #Mitaka release
 
@@ -119,6 +119,11 @@ parameters:
         description: The IP address of a DNS nameserver in list format
         default: 8.8.8.8,8.8.4.4
 
+    db_router:
+        type: string
+        label: AppDBRouter
+        description: The cloud provider does not allow router creation in policy
+
 #####################################
 # The resources section defines actual resources that make up a stack deployed from the
 # HOT template(for instance compute instances, networks, storage volumes).
@@ -134,44 +139,45 @@ resources:
         properties:
             public_network_id: { get_param: public_network_id}
             dns_nameserver: { get_param: dns_nameserver }
+            db_router: { get_param: db_router}
 
 ####################
-## Kick off a Database server
-    # launch_db_server:
-    #     type: lib/heat_sql_tier.yaml
-    #     properties:
-    #         ssh_key_name: { get_param: ssh_key_name }
-    #         server_name: { get_param: db_server_name }
-    #         instance_flavor: { get_param: db_instance_flavor }
-    #         image_id: { get_param: image_id }
-    #         private_network_id: { get_attr: [network_setup, db_private_network_id]}
-    #         security_group: { get_attr: [network_setup, db_security_group_id]}
+# Kick off a Database server
+    launch_db_server:
+        type: lib/heat_sql_tier.yaml
+        properties:
+            ssh_key_name: { get_param: ssh_key_name }
+            server_name: { get_param: db_server_name }
+            instance_flavor: { get_param: db_instance_flavor }
+            image_id: { get_param: image_id }
+            private_network_id: { get_attr: [network_setup, db_private_network_id]}
+            security_group: { get_attr: [network_setup, db_security_group_id]}
 
 ####################
 # Autoscaling for the app servers
-    # app_autoscale_group:
-    #     type: OS::Heat::AutoScalingGroup
-    #     properties:
-    #         desired_capacity: 2
-    #         min_size: 2
-    #         max_size: 5
-    #         resource:
-    #             type: lib/heat_app_tier.yaml
-    #             properties:
-    #                 ssh_key_name: { get_param: ssh_key_name}
-    #                 server_name: { get_param: app_server_name}
-    #                 instance_flavor: { get_param: app_instance_flavor}
-    #                 image_id: { get_param: image_id}
-    #                 private_network_id: { get_attr: [network_setup, app_private_network_id]}
-    #                 private_subnet_id: { get_attr: [network_setup, app_private_subnet_id]}
-    #                 security_group: { get_attr: [network_setup, app_security_group_id]}
-    #                 pool_name: { get_attr: [network_setup, app_lbaas_pool_name]}
-    #                 db_server_ip: { get_attr: [launch_db_server, instance_ip]}
-    #                 # created unique tag to be used by ceilometer to identify meters specific to the
-    #                 # app nodes without some unique metadata tag, ceilometer will group together
-    #                 # all resources in the tenant
-    #                 metadata: {"metering.autoscale_group_name": "app_autoscale_group"}
-    #
+    app_autoscale_group:
+        type: OS::Heat::AutoScalingGroup
+        properties:
+            desired_capacity: 2
+            min_size: 2
+            max_size: 5
+            resource:
+                type: lib/heat_app_tier.yaml
+                properties:
+                    ssh_key_name: { get_param: ssh_key_name}
+                    server_name: { get_param: app_server_name}
+                    instance_flavor: { get_param: app_instance_flavor}
+                    image_id: { get_param: image_id}
+                    private_network_id: { get_attr: [network_setup, app_private_network_id]}
+                    private_subnet_id: { get_attr: [network_setup, app_private_subnet_id]}
+                    security_group: { get_attr: [network_setup, app_security_group_id]}
+                    pool_name: { get_attr: [network_setup, app_lbaas_pool_name]}
+                    db_server_ip: { get_attr: [launch_db_server, instance_ip]}
+                    # created unique tag to be used by ceilometer to identify meters specific to the
+                    # app nodes without some unique metadata tag, ceilometer will group together
+                    # all resources in the tenant
+                    metadata: {"metering.autoscale_group_name": "app_autoscale_group"}
+
     # app_scaleup_policy:
     #     type: OS::Heat::ScalingPolicy
     #     properties:
@@ -192,11 +198,11 @@ resources:
     #         evaluation_periods: 1
     #         # Alarms if CPU utilization for ALL app nodes averaged together exceeds 50%
     #         threshold: 70
-    #     repeat_actions: true
-    #     alarm_actions: {get_attr: [app_scaleup_policy, alarm_url]}
-    #     # Collect data only on servers with the autoscale_group_name metadata set to app_autoscale_group
-    #     matching_metadata: {'metadata.user_metadata.autoscale_group_name': "app_autoscale_group"}
-    #     comparison_operator: gt # greater than
+    #         repeat_actions: true
+    #         alarm_actions: {get_attr: [app_scaleup_policy, alarm_url]}
+    #         # Collect data only on servers with the autoscale_group_name metadata set to app_autoscale_group
+    #         matching_metadata: {'metadata.user_metadata.autoscale_group_name': "app_autoscale_group"}
+    #         comparison_operator: gt # greater than
     #
     # app_scaledown_policy:
     #     type: OS::Heat::ScalingPolicy
@@ -206,7 +212,7 @@ resources:
     #         # cooldown prevents duplicate alarms while instances shut down.
     #         cooldown: 900 # 15 mins
     #         scaling_adjustment: -1
-    #
+
     # app_cpu_alarm_low:
     #     type: OS::Ceilometer::Alarm
     #     properties:
@@ -302,31 +308,31 @@ outputs:
         value:
             {get_attr: [network_setup, app_lbaas_IP]}
 
-    web_scale_up_url:
-        description: >
-            This URL is the webhook to scale up the WEB autoscaling group.  You
-            can invoke the scale-up operation by doing an HTTP POST to this
-            URL; no body nor extra headers are needed.  You do need to be authenticated
-            Example: source openrc; curl -X POST "<url>"
-        value:
-            {get_attr: [web_scaleup_policy, alarm_url]}
+    # web_scale_up_url:
+    #     description: >
+    #         This URL is the webhook to scale up the WEB autoscaling group.  You
+    #         can invoke the scale-up operation by doing an HTTP POST to this
+    #         URL; no body nor extra headers are needed.  You do need to be authenticated
+    #         Example: source openrc; curl -X POST "<url>"
+    #     value:
+    #         {get_attr: [web_scaleup_policy, alarm_url]}
+    #
+    # web_scale_down_url:
+    #     description:                                            >
+    #         This URL is the webhook to scale down the WEB autoscaling group.
+    #     value:
+    #         {get_attr: [web_scaledown_policy, alarm_url]}
 
-    web_scale_down_url:
-        description:                                            >
-            This URL is the webhook to scale down the WEB autoscaling group.
-        value:
-            {get_attr: [web_scaledown_policy, alarm_url]}
-
-    app_scale_up_url:
-        description:                                            >
-            This URL is the webhook to scale up the application autoscaling group.  You
-            can invoke the scale-up operation by doing an HTTP POST to this
-            URL; no body nor extra headers are needed.
-        value:
-            {get_attr: [app_scaleup_policy, alarm_url]}
-
-    app_scale_down_url:
-        description:                                            >
-            This URL is the webhook to scale down the application autoscaling group.
-        value:
-            {get_attr: [app_scaledown_policy,  alarm_url]}
+    # app_scale_up_url:
+    #     description:                                            >
+    #         This URL is the webhook to scale up the application autoscaling group.  You
+    #         can invoke the scale-up operation by doing an HTTP POST to this
+    #         URL; no body nor extra headers are needed.
+    #     value:
+    #         {get_attr: [app_scaleup_policy, alarm_url]}
+    #
+    # app_scale_down_url:
+    #     description:                                            >
+    #         This URL is the webhook to scale down the application autoscaling group.
+    #     value:
+    #         {get_attr: [app_scaledown_policy,  alarm_url]}
